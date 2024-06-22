@@ -1,0 +1,5 @@
+langchain
+langchain_openai
+selenium
+langchain_experimental
+argparse
