@@ -1,10 +1,12 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.select import Select
 from selenium.common.exceptions import NoSuchElementException
 from langchain.agents import tool
 from langchain.tools import StructuredTool
 from langchain.pydantic_v1 import Field, create_model
+import json
 
 class SeleniumEngine():
 
@@ -22,10 +24,15 @@ class SeleniumEngine():
 
     #links
     href_links = {}
+
+    #file upload elements
+    file_upload_elements = {}
     
-    def __init__(self, verbose: bool = False) -> None:
+    def __init__(self, verbose: bool = False, file_upload_source_path: str = None) -> None:
         
         self.verbose = verbose
+
+        self.file_upload_source_path = file_upload_source_path
         
         self.tools = [
             self.create_tool(
@@ -65,10 +72,22 @@ class SeleniumEngine():
                 tool_args={"select_element": str}
             ),
             self.create_tool(
+                self.get_file_upload_elements,
+                name="Get-File-Upload-Elements",
+                desc="Get a list of all file upload elements on the current webpage.",
+                tool_args={}
+            ),
+            self.create_tool(
                 self.enter_text,
                 name="Enter-Text",
                 desc="Enter text into a text input field on the current webpage.",
                 tool_args={"text_input_field": str, "text": str}
+            ),
+            self.create_tool(
+                self.bulk_enter_text,
+                name="Bulk-Enter-Text",
+                desc="Enter text into multiple text input fields on the current webpage. Provide a json string with the text input field as the key and the text as the value for every text input field you want to fill out.",
+                tool_args={"text_input_fields": str}
             ),
             self.create_tool(
                 self.click_button,
@@ -87,6 +106,18 @@ class SeleniumEngine():
                 name="Get-All-Text",
                 desc="Get all text on the current webpage.",
                 tool_args={}
+            ),
+            self.create_tool(
+                self.set_select_element_option,
+                name="Set-Select-Element-Option",
+                desc="Set an option for a select element on the current webpage.",
+                tool_args={"select_element": str, "option": str}
+            ),
+            self.create_tool(
+                self.upload_file,
+                name="Upload-File",
+                desc="Upload a file to a file upload element on the current webpage. Set the document to either `resume` or `transcript`.",
+                tool_args={"file_upload_element": str, "document": str}
             )
         ]
 
@@ -123,27 +154,15 @@ class SeleniumEngine():
 
         self.update_elements()
 
-        if self.verbose:
-
-            print("Text Input Fields")
-            print(self.text_input_elements)
-            print("Buttons")
-            print(self.buttons)
-            print("HREF Links")
-            print(self.href_links)
-
         return "Successfully navigated to URL: " + url
 
     def update_elements(self) -> None:
-
-        if self.verbose:
-
-            print("Updating elements...")
         
         self.text_input_elements = self.extract_input_fields()
         self.buttons = self.extract_buttons()
         self.href_links = self.extract_href_links()
         self.select_elements = self.extract_select_elements()
+        self.file_upload_elements = self.extract_file_uploads()
 
     def format_element_key(self, key: str) -> str:
 
@@ -152,6 +171,9 @@ class SeleniumEngine():
     def extract_input_fields(self) -> dict:
 
         text_input_elements = self.webdriver.find_elements(By.XPATH, "//input[@type='text']")
+
+        #filter non-displayed elements
+        text_input_elements = [element for element in text_input_elements if element.is_displayed()]
 
         element_dict = {self.get_text_input_key(element): element for element in text_input_elements}
 
@@ -185,6 +207,9 @@ class SeleniumEngine():
 
         buttons = self.webdriver.find_elements(By.XPATH, "//button")
 
+        #filter non-displayed elements
+        buttons = [button for button in buttons if button.is_displayed()]
+
         element_dict = {self.get_button_key(button): button for button in buttons}
 
         if '' in element_dict:
@@ -209,6 +234,9 @@ class SeleniumEngine():
 
         href_links = self.webdriver.find_elements(By.XPATH, "//a")
 
+        #filter non-displayed elements
+        href_links = [link for link in href_links if link.is_displayed()]
+        
         element_dict = {self.get_link_key(link): link for link in href_links}
 
         if '' in element_dict:
@@ -238,18 +266,15 @@ class SeleniumEngine():
         return self.format_element_key(key)
 
     def extract_select_elements(self) -> dict:
-
-        if self.verbose:
-
-            print("Extracting select elements...")
         
-        select_elements = self.webdriver.find_elements(By.XPATH, "//select")
+        select_elements = [Select(webElement) for webElement in self.webdriver.find_elements(By.XPATH, "//select")]
 
-        if self.verbose:
+        #filter non-displayed elements
+        select_elements = [select_element for select_element in select_elements if select_element._el.is_displayed()]
 
-            print(f"found {len(select_elements)} select elements")
-
-        element_dict = {self.get_select_key(select_element): {"options": self.get_select_options(select_element), "element": select_element} for select_element in select_elements}
+        element_dict = {
+            self.get_select_key(select_element): {"options": [selElem.get_attribute("value") for selElem in select_element.options], "element": select_element} for select_element in select_elements
+            }
 
         if '' in element_dict:
 
@@ -257,31 +282,46 @@ class SeleniumEngine():
 
         return element_dict
     
-    def get_select_key(self, select_element) -> str:
+    def get_select_key(self, select_element: Select) -> str:
 
-        if select_element.get_attribute("name"):
+        select_webElement = select_element._el
+        
+        if select_webElement.get_attribute("name"):
 
-            key = select_element.get_attribute("name")
+            key = select_webElement.get_attribute("name")
 
-        elif select_element.get_attribute("id"):
+        elif select_webElement.get_attribute("id"):
 
-            key = select_element.get_attribute("id")
-
-        if self.verbose:
-
-            print(f"Select key: {key}")
+            key = select_webElement.get_attribute("id")
 
         return self.format_element_key(key)
     
-    def get_select_options(self, select_element) -> list:
+    def extract_file_uploads(self) -> dict:
 
-        options = select_element.find_elements(By.XPATH, "//option")
+        file_uploads = self.webdriver.find_elements(By.XPATH, "//input[@type='file']")
 
-        if self.verbose:
+        #filter non-displayed elements
+        file_uploads = [file_upload for file_upload in file_uploads if file_upload.is_displayed()]
 
-            print(f"found {len(options)} options")
+        element_dict = {self.get_file_upload_key(file_upload): file_upload for file_upload in file_uploads}
 
-        return [option.get_attribute("text") for option in options]
+        if '' in element_dict:
+
+            del element_dict['']
+
+        return element_dict
+
+    def get_file_upload_key(self, file_upload) -> str:
+
+        if file_upload.get_attribute("name"):
+
+            key = file_upload.get_attribute("name")
+
+        elif file_upload.get_attribute("id"):
+
+            key = file_upload.get_attribute("id")
+
+        return self.format_element_key(key)
     
     #TOOL FUNC: Get Text Input Elements
     def get_text_input_elements(self) -> str:
@@ -321,7 +361,9 @@ class SeleniumEngine():
 
             return "No select elements found on the current webpage."
 
-        return ", ".join(self.select_elements.keys())
+        base_instruct = "The following select elements are available. Use the Get-Select-Element-Options tool to get the options for each select element. The Set-Select-Element-Option tool can be used to select an option for a select element."
+        
+        return base_instruct + "\n" + ", ".join(self.select_elements.keys())
     
     #TOOL FUNC: Get Select Element Options
     def get_select_element_options(self, select_element: str) -> list:
@@ -331,6 +373,17 @@ class SeleniumEngine():
             return f"Select element '{select_element}' not found on the current webpage."
 
         return self.select_elements[select_element]["options"]
+    
+    #TOOL FUNC: Get File Upload elements
+    def get_file_upload_elements(self) -> str:
+
+        if len(self.file_upload_elements) == 0:
+
+            return "No file upload elements found on the current webpage."
+        
+        base_instruct = "The following file upload elements are available. Use the Upload-File tool to upload a file to them."
+        
+        return base_instruct + "\n" + ", ".join(self.file_uploads.keys())
     
     #TOOL FUNC: Enter Text
     def enter_text(self, text_input_field: str, text: str) -> None:
@@ -347,6 +400,31 @@ class SeleniumEngine():
 
             return f"Text input field '{text_input_field}' not found on the current webpage."
 
+    #TOOL FUNC: Bulk Enter Text
+    def bulk_enter_text(self, text_input_fields: str) -> None:
+
+        text_input_fields_dict = json.loads(text_input_fields)
+
+        bulk_enter_successes = {}
+
+        for text_input_field, text in text_input_fields_dict.items():
+
+            enter_text_result = self.enter_text(text_input_field, text)
+
+            bulk_enter_successes[text_input_field] = enter_text_result
+
+        self.update_elements()
+
+        if all([result.split(" ")[0] == "Successfully" for result in bulk_enter_successes.values()]):
+
+            return "Successfully entered text into all text input fields."
+
+        else:
+
+            base_instruct = "The following text input fields were successfully filled out: \n"
+
+            return base_instruct + "\n".join([f"{key}: {value}" for key, value in bulk_enter_successes.items() if value.split(" ")[0] == "Successfully"])
+    
     #TOOL FUNC: Click Button
     def click_button(self, button: str) -> None:
 
@@ -371,8 +449,6 @@ class SeleniumEngine():
 
             self.update_elements()
 
-            print("done updating elements")
-
             return f"Successfully clicked link '{link}'."
 
         except KeyError:
@@ -384,18 +460,56 @@ class SeleniumEngine():
 
         return self.webdriver.page_source
 
+    #TOOL FUNC:
     def set_select_element_option(self, select_element: str, option: str) -> None:
 
         if select_element not in self.select_elements:
 
             return f"Select element '{select_element}' not found on the current webpage."
         
-        select_element = self.select_elements[select_element]["element"]
+        select_element_obj = self.select_elements[select_element]["element"]
 
-        select_element.select_by_visible_text(option)
+        try:
+            
+            select_element_obj.select_by_value(option)
+
+        except NoSuchElementException:
+
+            return f"Option '{option}' not found for select element '{select_element}'."
 
         self.update_elements()
 
         return f"Successfully selected option '{option}' for select element '{select_element}'."
+
+    #TOOL FUNC: Upload File
+    def upload_file(self, file_upload_element: str, document: str) -> None:
+
+        if file_upload_element not in self.file_uploads:
+
+            return f"File upload element '{file_upload_element}' not found on the current webpage."
+
+        if document == "resume":
+
+            file_path = self.file_upload_source_path + "resume.pdf"
+
+        elif document == "transcript":
+
+            file_path = self.file_upload_source_path + "transcript.pdf"
+
+        else:
+
+            return "Document must be either 'resume' or 'transcript'."
+
+        try:
+
+            self.file_uploads[file_upload_element].send_keys(file_path)
+
+            self.update_elements()
+
+            return f"Successfully uploaded file '{document}' to file upload element '{file_upload_element}'."
+
+        except Exception as e:
+
+            return f"Error uploading file '{document}' to file upload element '{file_upload_element}'. Error: {e}"
     
     

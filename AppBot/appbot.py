@@ -1,7 +1,7 @@
 import langchain
 import langchain.agents as LangChainAgents
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_community import get_openai_callback
+from langchain_community.callbacks.manager import get_openai_callback
 from langchain.agents.output_parsers.openai_tools import OpenAIToolsAgentOutputParser
 from langchain.agents.format_scratchpad.openai_tools import format_to_openai_tool_messages
 from extendedchatopenai import ExtendedChatOpenAI
@@ -17,7 +17,7 @@ class AppBot:
         
         #LLM
         self.llm = ExtendedChatOpenAI(
-            model="gpt-3.5-turbo", 
+            model="gpt-4o", 
             api_key_filename="openai_api_key.txt", 
             temperature=0
         )
@@ -28,15 +28,17 @@ class AppBot:
                 You are a powerful assistant that has been tasked with filling out job applications. 
                 You have access to a web browser and can navigate to any website. 
                 You can type and click on elements, but you must only interact with elements that you have determined to exist using the tools available to you.
-                You have access to the applicant's profile information via a tool.
+                You have access to the applicant's profile information via a tool. Make sure you use this information to fill out the applications.
+                Make sure you fill out all fields. If the information for a field is not provided, make a best guess.
                 Make sure you use the right tool for the job. For example, to click a link, make sure you use the link clicking tool instead of the button clicking tool.
+                When setting a select option, make sure you you verify the option exists before setting it.
             """),
             ("user", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad")
         ])
 
         #selenium agent
-        self.selenium_engine = SeleniumEngine(verbose=verbose)
+        self.selenium_engine = SeleniumEngine(verbose=verbose, file_upload_source_path=f"../applicants/{self.applicant_id}/")
         
         #applicant profile
         self.applicant_profile = ApplicantProfile(applicantID=self.applicant_id)
@@ -57,7 +59,7 @@ class AppBot:
             | OpenAIToolsAgentOutputParser()
         )
 
-        self.agent_executor = LangChainAgents.AgentExecutor(agent=self.agent, tools=all_tools, verbose=verbose)
+        self.agent_executor = LangChainAgents.AgentExecutor(agent=self.agent, tools=all_tools, verbose=verbose, max_iterations=100)
 
     def invoke_agent(self, input_text: str) -> None:
 
@@ -85,5 +87,5 @@ if __name__ == "__main__":
 
         input_text = "Use the tools available to you to fill out job applications."
 
-    appbot = AppBot(verbose=True, applicant_id="test")
+    appbot = AppBot(verbose=True, applicant_id="sjaskowski")
     appbot.invoke_agent(input_text)

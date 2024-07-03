@@ -27,7 +27,7 @@ class ApplicantProfile:
 
     def load_applicant_json(self) -> dict:
 
-        with open(f"../applicants/{self.applicantID}.json", "r") as f:
+        with open(f"../applicants/{self.applicantID}/{self.applicantID}.json", "r") as f:
 
             return json.load(f)
 
