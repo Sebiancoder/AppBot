@@ -1,0 +1,26 @@
+{
+    "basicInfo": {
+        "firstName": "",
+        "lastName": "",
+        "birthYear": 1900,
+        "birthMonth": "",
+        "birthDayOfMonth": 1
+    },
+    "demographic": {
+        "race": "",
+        "hispanicOrLatino": bool,
+        "gender": "",
+        "veteranStatus": ""
+    },
+    "contactInfo": {
+        "email": "",
+        "phone": "",
+        "phoneType": "",
+        "address": {
+            "street": "",
+            "city": "",
+            "state": "",
+            "zip": ""
+        }
+    }
+}

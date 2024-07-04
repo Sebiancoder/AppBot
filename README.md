@@ -14,4 +14,4 @@ To install, clone this repository. Then run:
 
 to install all required dependencies. 
 
-In addition, to use this project, you need an OpenAI Key. You can set the key by setting the environment variable `OPENAI_API_KEY` to point to your key. Alternatively, you can put your key in a file entitled `openai_api_key.txt` in the `secrets` folder.
+In addition, to use this project, you need an OpenAI Key. You can set the key by setting the environment variable `OPENAI_API_KEY` to point to your key. Alternatively, you can put your key in a file entitled `openai_api_key.txt` in a folder entitled `secrets` in the root directory.

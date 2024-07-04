@@ -1,0 +1,1 @@
+Replace this file with the Resume you want AppBot to upload to job applications. Make sure the file is called resume.pdf
